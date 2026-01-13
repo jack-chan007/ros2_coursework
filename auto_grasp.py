@@ -85,7 +85,7 @@ class AutoGraspController(Node):
         self.move_smoothly(self.current_joints, self.vertical_pose, 2.5, True)
         self.is_moving = False
         self.get_logger().info(" 💪  就绪，等待香蕉坐标...")
-
+    #旧的
     def solve_ik(self, x, y, z):
         target_pos = [x, y, z]
         
@@ -128,6 +128,7 @@ class AutoGraspController(Node):
         except Exception:
             return None
 
+
     def target_callback(self, msg):
         if not self.urdf_ready or self.is_moving or self.mission_completed: return
         
@@ -140,7 +141,7 @@ class AutoGraspController(Node):
         
         # --- 参数设定 ---
         safe_height = 0.80      
-        grasp_height = z_floor + 0.05 
+        grasp_height = z_floor + 0.02 #原本是0.05,现在改成0.02
         lift_height = z_floor + 0.25   
 
         self.get_logger().info(" 🚀  开始【防碰撞优化版】抓取流程")
@@ -236,7 +237,12 @@ class AutoGraspController(Node):
         msg.name = self.joint_names + self.gripper_names
         
         # Open=0.04 (张开), Close=-0.02 (闭合触发磁吸)
-        g_val = 0.04 if gripper_open else -0.02 
+        #旧的参数
+        #g_val = 0.04 if gripper_open else -0.02 
+        #新的参数
+        # Open=0.04 (张开)
+        # Close=0.01 (闭合但留 1cm 空隙，根据香蕉厚度调整，0.01~0.015 比较合适)
+        g_val = 0.04 if gripper_open else 0.01
         
         msg.position = angles + [g_val, g_val]
         self.joint_pub.publish(msg)

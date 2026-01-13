@@ -11,9 +11,10 @@ class MujocoRosBridge(Node):
     def __init__(self):
         super().__init__('mujoco_ros_bridge')
         
-        # 1. 加载模型
+        # 1. 加载模型 (注意路径是否正确)
         xml_path = '/home/ferry/ros2_course_work/src/openarm_description/mujoco/scene_with_table.xml'
         
+        # 检查文件是否存在，避免报错
         if not os.path.exists(xml_path):
              self.get_logger().error(f"❌ XML 文件未找到: {xml_path}")
         
@@ -35,16 +36,18 @@ class MujocoRosBridge(Node):
         self.camera_info = self.get_camera_info(640, 480, 60.0)
         self.timer = self.create_timer(0.01, self.timer_callback)
 
-        # 缓存 ID
+        # 缓存 ID，用于磁吸逻辑
         try:
             self.banana_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "banana")
+            # 注意：如果你的XML里夹爪末端名字不同，这里可能需要调整，比如 "openarm_left_link7"
             self.gripper_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "openarm_left_hand_tcp") 
             if self.gripper_id == -1:
                 self.gripper_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "openarm_left_link7")
             
+            # 获取香蕉自由关节的地址 (用于修改位置)
             banana_joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "banana")
             self.banana_qpos_adr = self.model.jnt_qposadr[banana_joint_id]
-            self.banana_qvel_adr = self.model.jnt_dofadr[banana_joint_id]
+            self.banana_qvel_adr = self.model.jnt_dofadr[banana_joint_id] # 速度地址
         except:
             self.get_logger().warn("⚠️ 无法找到香蕉或夹爪的ID，磁吸逻辑可能失效。")
             self.banana_id = -1
@@ -63,7 +66,9 @@ class MujocoRosBridge(Node):
             self.joint_positions[name] = pos
 
     def timer_callback(self):
-        # 1. 同步关节
+        # 1. 【同步机械臂关节】
+        # 即使使用了 mj_step，我们依然在这里强行覆盖关节角度，
+        # 这样机械臂就会乖乖听 ROS 的话，而不会因为重力软掉。
         gripper_closed = False
         for name, pos in self.joint_positions.items():
             try:
@@ -72,43 +77,46 @@ class MujocoRosBridge(Node):
                     qpos_adr = self.model.jnt_qposadr[joint_id]
                     self.data.qpos[qpos_adr] = pos
                 
-                # 【关键修改】判断夹爪是否闭合
-                # 目标是0.01(闭合)，0.04(张开)
-                # 所以我们把阈值设为 0.012，小于它就算闭合
-                if "finger_joint1" in name and pos < 0.012:
+                # 检测夹爪是否闭合 (根据 openarm 的定义，负值通常是闭合)
+                if "finger_joint1" in name and pos < 0.02:#原本是-0.01,现在改成0.02
                     gripper_closed = True
             except:
                 continue
 
-        # 2. 磁吸逻辑 (The Magnet)
+        # 2. 【磁吸逻辑 (The Magnet)】
         if self.banana_id != -1 and self.gripper_id != -1:
+            # 获取位置
             banana_pos = self.data.xpos[self.banana_id]
             gripper_pos = self.data.xpos[self.gripper_id]
             
+            # 计算距离
             dist = np.linalg.norm(banana_pos - gripper_pos)
             
-            # 【关键修改】
-            # 1. 距离必须小于 0.03 (3厘米)，也就是几乎贴脸了才吸，防止还没下去就吸上来
-            # 2. 夹爪必须是闭合状态
-            if gripper_closed and dist < 0.03:
-                # 吸附位置
-                # [0, 0, 0.0] 表示吸在夹爪中心。
-                # 如果觉得位置偏上或偏下，微调最后的 0.0 (比如 -0.02 往下一点)
-                target_pos = gripper_pos + np.array([0.0, 0.0, 0.0]) 
+            # 触发条件：夹爪闭合 且 距离足够近 (< 0.15m)
+            if gripper_closed and dist < 0.15:
+                # 强行设置香蕉的位置到夹爪下方
+                # 这里的 [0.0, 0.0, 0.02] 是相对于夹爪中心的偏移量，需要根据模型微调
+                # 如果香蕉穿模太严重，把 0.02 改大一点
+                target_pos = gripper_pos + np.array([0.0, 0.0, 0.02]) 
                 
+                # 修改香蕉的位置 (qpos)
                 self.data.qpos[self.banana_qpos_adr] = target_pos[0]
                 self.data.qpos[self.banana_qpos_adr+1] = target_pos[1]
                 self.data.qpos[self.banana_qpos_adr+2] = target_pos[2]
                 
-                # 锁死速度
+                # 【关键】将香蕉的速度 (qvel) 归零，防止它在被抓住时积累巨大的动量
+                # 这样松开时它会垂直下落，而不是飞出去
                 if hasattr(self, 'banana_qvel_adr'):
-                    for i in range(6):
+                    for i in range(6): # 自由关节有6个自由度
                         self.data.qvel[self.banana_qvel_adr + i] = 0.0
 
-        # 3. 物理步进 (让重力生效)
+        # 3. 【核心修改】物理步进
+        # 使用 mj_step 替代 mj_forward。
+        # mj_step 会推进时间，让重力生效。这样当你松开夹爪（上面的if不执行）时，
+        # 物理引擎的重力就会接管香蕉，让它掉下去。
         mujoco.mj_step(self.model, self.data)
         
-        # 4. 刷新画面
+        # 4. 更新画面
         self.viewer.sync()
         
         self.renderer.update_scene(self.data, camera="depth_camera")
