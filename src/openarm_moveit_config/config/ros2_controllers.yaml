@@ -1,0 +1,65 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    left_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    right_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    left_hand_controller:
+      type: position_controllers/GripperActionController
+
+    right_hand_controller:
+      type: position_controllers/GripperActionController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+left_arm_controller:
+  ros__parameters:
+    joints:
+      - openarm_left_joint1
+      - openarm_left_joint2
+      - openarm_left_joint3
+      - openarm_left_joint4
+      - openarm_left_joint5
+      - openarm_left_joint6
+      - openarm_left_joint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
+right_arm_controller:
+  ros__parameters:
+    joints:
+      - openarm_right_joint1
+      - openarm_right_joint2
+      - openarm_right_joint3
+      - openarm_right_joint4
+      - openarm_right_joint5
+      - openarm_right_joint6
+      - openarm_right_joint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
+left_hand_controller:
+  ros__parameters:
+    joint: openarm_left_finger_joint1
+    # 手爪通常不需要太复杂的约束，但也加上以防万一
+    goal_tolerance: 0.1
+    stalled_velocity_threshold: 0.1
+    stall_timeout: 0.5
+
+right_hand_controller:
+  ros__parameters:
+    joint: openarm_right_finger_joint1
+    goal_tolerance: 0.1
+    stalled_velocity_threshold: 0.1
+    stall_timeout: 0.5

@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="openarm">
+    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+
+    <!-- Import openarm urdf file -->
+    <!-- <xacro:include filename="openarm_bimanual_cam.urdf" /> -->
+    <xacro:include filename="$(find openarm_description)/urdf/robot/openarm_bimanual_cam.urdf" />
+
+    <gazebo>
+        <!-- 固定底座 -->
+        <link name="base_link">
+            <static>true</static>
+            <self_collide>false</self_collide>
+        </link>
+        <!-- <plugin filename="gz_ros2_control::GzSystem" name="gz_ros2_control::GazeboSimROS2ContrlPlugin"> -->
+        <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+            <parameters>$(find openarm_moveit_config)/config/ros2_controllers.yaml</parameters>
+            <robot_param>robot_description</robot_param>
+            <robot_param_node>robot_state_publisher</robot_param_node>
+        </plugin>
+    </gazebo>
+
+
+    <!-- Import control_xacro -->
+    <xacro:include filename="openarm.gazebo.ros2_control.xacro" />
+
+
+    <xacro:openarm_ros2_control name="GazeboSimSystem" initial_positions_file="$(arg initial_positions_file)"/>
+
+</robot>

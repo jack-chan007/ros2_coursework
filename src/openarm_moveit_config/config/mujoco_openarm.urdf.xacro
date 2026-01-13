@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="openarm">
+    
+    <!-- 1. 定义参数，防止宏调用时找不到参数报错 -->
+    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+
+    <!-- Import openarm urdf file -->
+    <xacro:include filename="mujoco_openarm_bimanual_cam.urdf" />
+
+    <!-- Import control_xacro -->
+    <!-- 注意：这里包含了你定义的那个文件 -->
+    <xacro:include filename="mujoco_ros2_control_position.xacro" />
+
+    <!-- 2. 关键修复：显式调用宏 -->
+    <!-- 宏的名字必须与 mujoco_ros2_control.xacro 中定义的 xacro:macro name="..." 一致 -->
+    <!-- 定义是: openarm_mujoco_ros2_control -->
+    <xacro:openarm_mujoco_ros2_control name="MujocoSystem" initial_positions_file="$(arg initial_positions_file)"/>
+
+</robot>

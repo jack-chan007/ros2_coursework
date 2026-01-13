@@ -1,0 +1,164 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:macro name="openarm_mujoco_ros2_control" params="name initial_positions_file">
+        <!-- 核心：ros2_control 配置根标签，定义硬件系统接口 -->
+        <!-- name: 硬件系统名称（需与 MuJoCo 插件匹配）；type: 系统类型（system 表示完整硬件系统） -->
+        <ros2_control name="MujocoSystem" type="system">
+            <!-- 硬件接口配置段：指定 MuJoCo 仿真的硬件插件 -->
+            <hardware>
+                <!-- 注释：默认配置仿真用控制器，无法在真实硬件上运行 -->
+                <!-- By default, set up controllers for simulation. This won't work on real hardware -->
+                <!-- plugin: 指定 ros2_control 加载的硬件插件（MuJoCo 仿真核心插件） -->
+                <plugin>mujoco_ros2_control/MujocoSystem</plugin>
+            </hardware>
+
+            <!-- 左侧机械臂1号关节配置 -->
+            <joint name="openarm_left_joint1">
+                <!-- 命令接口：该关节支持「位置控制」（ros2_control 下发位置指令） -->
+                <command_interface name="effort"/> 
+                <!-- 状态接口：关节位置状态（供 ros2_control 读取） -->
+                <state_interface name="position">
+                    <!-- 位置初始值：仿真启动时该关节的初始位置（弧度） -->
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <!-- 状态接口：关节速度状态（供 ros2_control 读取） -->
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 左侧机械臂2号关节配置（与1号关节逻辑一致） -->
+            <joint name="openarm_left_joint2">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 左侧机械臂3号关节配置 -->
+            <joint name="openarm_left_joint3">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 左侧机械臂4号关节配置 -->
+            <joint name="openarm_left_joint4">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 左侧机械臂5号关节配置 -->
+            <joint name="openarm_left_joint5">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 左侧机械臂6号关节配置 -->
+            <joint name="openarm_left_joint6">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 左侧机械臂7号关节配置 -->
+            <joint name="openarm_left_joint7">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 右侧机械臂1号关节配置 -->
+            <joint name="openarm_right_joint1">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 右侧机械臂2号关节配置 -->
+            <joint name="openarm_right_joint2">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 右侧机械臂3号关节配置 -->
+            <joint name="openarm_right_joint3">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 右侧机械臂4号关节配置（修正原代码语法错误：param 标签补充等号） -->
+            <joint name="openarm_right_joint4">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>  <!-- 原代码缺失 "="，已修正 -->
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 右侧机械臂5号关节配置 -->
+            <joint name="openarm_right_joint5">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 右侧机械臂6号关节配置 -->
+            <joint name="openarm_right_joint6">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 右侧机械臂7号关节配置 -->
+            <joint name="openarm_right_joint7">
+                <command_interface name="effort"/> 
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 左侧夹爪1号关节配置 -->
+            <joint name="openarm_left_finger_joint1">
+                <command_interface name="position"/>  <!-- 夹爪仅支持位置控制 -->
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>  <!-- 夹爪初始张开/闭合位置（弧度） -->
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+
+            <!-- 右侧夹爪1号关节配置 -->
+            <joint name="openarm_right_finger_joint1">
+                <command_interface name="position"/>
+                <state_interface name="position">
+                    <param name="initial_value">0.0</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+            </ros2_control>
+    </xacro:macro>
+</robot>

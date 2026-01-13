@@ -1,0 +1,214 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
+from geometry_msgs.msg import PointStamped
+from std_msgs.msg import String
+from rclpy.qos import QoSProfile, DurabilityPolicy
+import tempfile
+import os
+import ikpy.chain
+import numpy as np
+import time
+
+class AutoGraspController(Node):
+    def __init__(self):
+        super().__init__('auto_grasp_controller')
+        
+        # 1. Config
+        qos_profile = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.create_subscription(String, '/robot_description', self.urdf_callback, qos_profile)
+        self.create_subscription(PointStamped, '/banana_position', self.target_callback, 10)
+        self.joint_pub = self.create_publisher(JointState, '/joint_states', 10)
+
+        self.base_elements = ["world"]
+        self.joint_names = [
+            'openarm_left_joint1', 'openarm_left_joint2', 'openarm_left_joint3',
+            'openarm_left_joint4', 'openarm_left_joint5', 'openarm_left_joint6',
+            'openarm_left_joint7'
+        ]
+        self.gripper_names = ['openarm_left_finger_joint1', 'openarm_left_finger_joint2']
+        
+        self.ik_chain = None
+        self.mask = []
+        self.current_joints = [0.0] * 7
+        self.is_moving = False
+        self.urdf_ready = False
+        self.mission_completed = False
+
+        # --- Defined Poses ---
+        # Vertical High Pose (Waiting)
+        self.vertical_pose = [0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+        self.create_timer(0.1, self.idle_callback)
+        self.get_logger().info(" ⏳  Waiting for robot_description...")
+
+    def idle_callback(self):
+        if not self.is_moving and self.current_joints is not None:
+            # Keep gripper open when idle
+            self.publish_joints(self.current_joints, gripper_open=True)
+
+    def urdf_callback(self, msg):
+        if self.urdf_ready: return
+        self.get_logger().info(" ✅  URDF Received.")
+        try:
+            # --- 修复点：去掉了 .encode('utf-8')，直接写入字符串 ---
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.urdf') as tmp:
+                tmp.write(msg.data) 
+                tmp_path = tmp.name
+
+            # Setup IK Chain
+            temp_chain = ikpy.chain.Chain.from_urdf_file(tmp_path, base_elements=self.base_elements, name="openarm_left")
+            self.mask = []
+            for link in temp_chain.links:
+                is_active = "joint" in link.name and "finger" not in link.name and "hand" not in link.name and "world" not in link.name
+                self.mask.append(is_active)
+
+            self.ik_chain = ikpy.chain.Chain.from_urdf_file(
+                tmp_path, base_elements=self.base_elements, name="openarm_left", active_links_mask=self.mask
+            )
+            self.urdf_ready = True
+            os.remove(tmp_path)
+            
+            # Go to Initial Vertical Pose
+            self.perform_reset()
+
+        except Exception as e:
+            self.get_logger().error(f"URDF Parse Error: {e}")
+
+    def perform_reset(self):
+        self.get_logger().info(" 💪  Resetting to Vertical High Position...")
+        self.is_moving = True
+        self.move_smoothly(self.current_joints, self.vertical_pose, 2.0, True)
+        self.is_moving = False
+        self.get_logger().info(" 💪  Ready.")
+
+    def solve_ik(self, x, y, z):
+        target_pos = [x, y, z]
+        try:
+            initial_full = [0.0] * len(self.ik_chain.links)
+            j_idx = 0
+            for i, is_active in enumerate(self.mask):
+                if is_active and j_idx < len(self.current_joints):
+                    initial_full[i] = self.current_joints[j_idx]
+                    j_idx += 1
+            
+            # Use current joints as seed to prefer solutions close to current (vertical)
+            ik_solution = self.ik_chain.inverse_kinematics(target_position=target_pos, initial_position=initial_full)
+            
+            final_joints = []
+            for i, angle in enumerate(ik_solution):
+                if self.mask[i]: final_joints.append(angle)
+            return final_joints
+        except Exception:
+            return None
+
+    def target_callback(self, msg):
+        if not self.urdf_ready or self.is_moving or self.mission_completed: return
+        
+        # Filter valid range
+        if 0.3 < msg.point.x < 0.7:
+            self.get_logger().info(f" 🎯  Target Found X={msg.point.x:.2f}")
+            self.execute_grasp(msg.point.x, msg.point.y, msg.point.z)
+
+    def execute_grasp(self, x, y, z_floor):
+        self.is_moving = True
+        
+        # --- Parameters ---
+        safe_height = 0.65      # Gate Top Height
+        grasp_height = z_floor + 0.05  # Grasp Height
+        lift_height = z_floor + 0.20   # Lift Height
+
+        self.get_logger().info(" 🚀  Starting Gate Trajectory...")
+
+        # IK Calculations
+        # 1. Top of Target (Safe Height)
+        q_top = self.solve_ik(x, y, safe_height)
+        
+        if q_top:
+            # Update current joints temporarily for next IK seed
+            backup_joints = list(self.current_joints)
+            self.current_joints = list(q_top)
+            q_grasp = self.solve_ik(x, y, grasp_height)
+            self.current_joints = backup_joints # Restore
+
+            if q_grasp:
+                # --- Execution Sequence ---
+
+                # 1. Gate UP: Go to High Vertical (if not already)
+                self.get_logger().info("--> 1. Gate UP (Vertical Safe)")
+                self.move_smoothly(self.current_joints, self.vertical_pose, 2.0, gripper_open=True)
+                time.sleep(0.2)
+
+                # 2. Gate OVER: Move to X,Y at Safe Height
+                self.get_logger().info("--> 2. Gate OVER (Align X,Y)")
+                self.move_smoothly(self.vertical_pose, q_top, 2.0, gripper_open=True)
+                time.sleep(0.5)
+
+                # 3. Gate DOWN: Vertical Descent
+                self.get_logger().info("--> 3. Gate DOWN (Descend)")
+                self.move_smoothly(q_top, q_grasp, 2.0, gripper_open=True)
+                time.sleep(0.5)
+
+                # 4. GRASP
+                self.get_logger().info("--> 4. GRASP (Magnet ON)")
+                self.publish_joints(q_grasp, gripper_open=False)
+                time.sleep(1.5) # Wait for magnet logic in bridge to catch it
+
+                # 5. LIFT
+                self.get_logger().info("--> 5. LIFT")
+                # Calculate Lift IK
+                self.current_joints = list(q_grasp)
+                q_lift = self.solve_ik(x, y, lift_height)
+                self.move_smoothly(self.current_joints, q_lift, 1.5, gripper_open=False)
+                time.sleep(0.5)
+
+                # 6. RELEASE
+                self.get_logger().info("--> 6. RELEASE (Drop)")
+                self.publish_joints(q_lift, gripper_open=True)
+                time.sleep(1.0)
+                self.current_joints = list(q_lift)
+
+                # 7. STOP
+                self.get_logger().info(" ✨  Mission Complete. Halting.")
+                self.mission_completed = True
+
+            else:
+                 self.get_logger().error("IK Failed for Grasp Point")
+        else:
+             self.get_logger().error("IK Failed for Top Point")
+        
+        self.is_moving = False
+
+    def move_smoothly(self, start, end, duration, gripper_open):
+        steps = int(duration * 50)
+        start = np.array(start)
+        end = np.array(end)
+        for i in range(steps):
+            progress = (i + 1) / steps
+            interp = start + (end - start) * progress
+            self.publish_joints(interp.tolist(), gripper_open)
+            time.sleep(duration / steps)
+        self.publish_joints(end.tolist(), gripper_open)
+        self.current_joints = list(end)
+
+    def publish_joints(self, angles, gripper_open):
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = self.joint_names + self.gripper_names
+        # Gripper close command: -0.02
+        g_val = 0.0 if gripper_open else -0.02 
+        msg.position = angles + [g_val, g_val]
+        self.joint_pub.publish(msg)
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = AutoGraspController()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
