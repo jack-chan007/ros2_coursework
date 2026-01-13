@@ -31,14 +31,12 @@ class BananaDetector(Node):
         self.table_height = 0.425  
 
         # 2. 【核心修正】手动误差补偿 (单位：米)
-        # 如果夹爪落在香蕉【左边】，说明计算出的Y太小了，要增加 Y_OFFSET
-        # 如果夹爪落在香蕉【前面】，说明计算出的X太大了，要减小 X_OFFSET
-        
         # 建议先归零，看看原始误差是多少，然后再微调
-        self.offset_x = 0.04   # 前后偏移 (正数往远挪，负数往回挪)0.02
-        self.offset_y = -0.13   # 左右偏移 (正数往左挪，负数往右挪，取决于坐标系方向)-0.19
+        self.offset_x = 0.04   # 前后偏移
+        self.offset_y = -0.13   # 左右偏移
 
         self.get_logger().info(f" 🍌  检测启动 | 补偿参数: X={self.offset_x}, Y={self.offset_y}")
+        self.get_logger().info(" 📺  可视化窗口已开启: Banana Detection View")
 
     def info_callback(self, msg):
         if self.camera_model is None:
@@ -59,13 +57,31 @@ class BananaDetector(Node):
         mask = cv2.dilate(mask, None, iterations=2)
         
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # 默认显示原图，如果有检测结果会在下面画上去
+        display_img = cv_image.copy()
+
         if len(contours) > 0:
             c = max(contours, key=cv2.contourArea)
             M = cv2.moments(c)
             if M["m00"] > 0:
                 cX = int(M["m10"] / M["m00"])
                 cY = int(M["m01"] / M["m00"])
+
+                # --- 【新增】可视化绘制 ---
+                # 画出绿色轮廓
+                cv2.drawContours(display_img, [c], -1, (0, 255, 0), 2)
+                # 画出红色中心点
+                cv2.circle(display_img, (cX, cY), 7, (0, 0, 255), -1)
+                # 写文字
+                cv2.putText(display_img, "Banana", (cX - 20, cY - 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
                 self.process_coordinates(cX, cY, msg.header)
+
+        # --- 【新增】显示图像窗口 ---
+        cv2.imshow("Banana Detection View", display_img)
+        cv2.waitKey(1)
 
     def process_coordinates(self, u, v, header):
         # 1. 像素 -> 归一化相机坐标
@@ -152,6 +168,10 @@ def main(args=None):
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    
+    # --- 【新增】关闭窗口 ---
+    cv2.destroyAllWindows()
+    
     node.destroy_node()
     rclpy.shutdown()
 
